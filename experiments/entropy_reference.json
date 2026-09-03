@@ -1,0 +1,34 @@
+{
+  "uniform_nats": 4.1744,
+  "unigram_nats": 3.3091,
+  "runs": [
+    {
+      "run": "baseline",
+      "val_loss": 1.5571,
+      "vs_unigram": -1.752,
+      "beats_unigram": true,
+      "distinct_4gram": 0.931
+    },
+    {
+      "run": "no_pos_emb",
+      "val_loss": 1.8466,
+      "vs_unigram": -1.4625,
+      "beats_unigram": true,
+      "distinct_4gram": 0.956
+    },
+    {
+      "run": "no_residual",
+      "val_loss": 3.3592,
+      "vs_unigram": 0.0501,
+      "beats_unigram": false,
+      "distinct_4gram": 0.964
+    },
+    {
+      "run": "no_layernorm",
+      "val_loss": 1.7929,
+      "vs_unigram": -1.5161,
+      "beats_unigram": true,
+      "distinct_4gram": 0.899
+    }
+  ]
+}
