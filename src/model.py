@@ -38,7 +38,7 @@ class MultiHeadAttention(nn.Module):
             ),
         )
 
-    def forward(self, x, past_kv=None):
+    def forward(self, x, past_kv=None, cache=None, layer_idx=0):
         """past_kv: optional (k, v) from previous steps, each (B, n_head, T_past, head_dim).
 
         Returns (output, present_kv). When past_kv is given, x holds only the
@@ -52,11 +52,16 @@ class MultiHeadAttention(nn.Module):
         k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        if past_kv is not None:
+        if cache is not None:
+            k, v = cache.update(layer_idx, k, v)
+            present = None
+        elif past_kv is not None:
             past_k, past_v = past_kv
             k = torch.cat([past_k, k], dim=2)
             v = torch.cat([past_v, v], dim=2)
-        present = (k, v)
+            present = (k, v)
+        else:
+            present = (k, v)
 
         T_full = k.size(2)
         if T_full > self.mask.size(-1):
@@ -102,8 +107,10 @@ class Block(nn.Module):
         self.attn = MultiHeadAttention(config)
         self.ffwd = FeedForward(config)
 
-    def forward(self, x, past_kv=None):
-        attn_out, present = self.attn(self.ln1(x), past_kv=past_kv)
+    def forward(self, x, past_kv=None, cache=None, layer_idx=0):
+        attn_out, present = self.attn(
+            self.ln1(x), past_kv=past_kv, cache=cache, layer_idx=layer_idx
+        )
         if self.use_residual:
             x = x + attn_out
             x = x + self.ffwd(self.ln2(x))
@@ -138,9 +145,14 @@ class GPT(nn.Module):
     def num_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, idx, targets=None, past_kvs=None, use_cache=False):
+    def forward(self, idx, targets=None, past_kvs=None, cache=None, use_cache=False):
         B, T = idx.shape
-        n_past = past_kvs[0][0].size(2) if past_kvs is not None else 0
+        if cache is not None:
+            n_past = cache.pos
+        elif past_kvs is not None:
+            n_past = past_kvs[0][0].size(2)
+        else:
+            n_past = 0
         if n_past + T > self.config.block_size:
             raise ValueError(
                 f"sequence length {n_past + T} exceeds block_size {self.config.block_size}"
@@ -156,9 +168,11 @@ class GPT(nn.Module):
         presents = [] if use_cache else None
         for i, block in enumerate(self.blocks):
             past = past_kvs[i] if past_kvs is not None else None
-            x, present = block(x, past_kv=past)
-            if use_cache:
+            x, present = block(x, past_kv=past, cache=cache, layer_idx=i)
+            if use_cache and present is not None:
                 presents.append(present)
+        if cache is not None:
+            cache.advance(T)
         x = self.ln_f(x)
         logits = self.head(x)
 
@@ -169,3 +183,36 @@ class GPT(nn.Module):
         if use_cache:
             return logits, loss, presents
         return logits, loss
+
+
+class KVCache:
+    """Preallocated key/value cache.
+
+    Allocates the full (B, n_head, block_size, head_dim) buffer once per layer
+    and writes new keys/values into a slice. Avoids the per-step reallocation
+    and full copy that torch.cat performs, which is itself O(n^2) over a
+    generation run.
+    """
+
+    def __init__(self, config, batch_size, device, dtype=torch.float32):
+        head_dim = config.n_embd // config.n_head
+        shape = (batch_size, config.n_head, config.block_size, head_dim)
+        self.k = [torch.zeros(shape, device=device, dtype=dtype)
+                  for _ in range(config.n_layer)]
+        self.v = [torch.zeros(shape, device=device, dtype=dtype)
+                  for _ in range(config.n_layer)]
+        self.pos = 0
+
+    def update(self, layer_idx, k, v):
+        """Write this step's k/v into the buffer, return a view of everything so far."""
+        T = k.size(2)
+        end = self.pos + T
+        self.k[layer_idx][:, :, self.pos:end] = k
+        self.v[layer_idx][:, :, self.pos:end] = v
+        return self.k[layer_idx][:, :, :end], self.v[layer_idx][:, :, :end]
+
+    def advance(self, T):
+        self.pos += T
+
+    def nbytes(self):
+        return sum(t.numel() * t.element_size() for t in self.k + self.v)

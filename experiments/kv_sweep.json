@@ -1,0 +1,86 @@
+{
+  "results": [
+    {
+      "size": "small",
+      "params": 3222528,
+      "batch": 1,
+      "naive_ms": 390.9,
+      "cat_ms": 375.1,
+      "prealloc_ms": 516.8,
+      "cat_speedup": 1.04,
+      "prealloc_speedup": 0.76,
+      "kv_cache_mb": 1.05
+    },
+    {
+      "size": "small",
+      "params": 3222528,
+      "batch": 8,
+      "naive_ms": 442.2,
+      "cat_ms": 438.7,
+      "prealloc_ms": 447.9,
+      "cat_speedup": 1.01,
+      "prealloc_speedup": 0.99,
+      "kv_cache_mb": 8.39
+    },
+    {
+      "size": "small",
+      "params": 3222528,
+      "batch": 32,
+      "naive_ms": 836.3,
+      "cat_ms": 402.5,
+      "prealloc_ms": 425.2,
+      "cat_speedup": 2.08,
+      "prealloc_speedup": 1.97,
+      "kv_cache_mb": 33.55
+    },
+    {
+      "size": "medium",
+      "params": 25339904,
+      "batch": 1,
+      "naive_ms": 855.1,
+      "cat_ms": 770.1,
+      "prealloc_ms": 1004.8,
+      "cat_speedup": 1.11,
+      "prealloc_speedup": 0.85,
+      "kv_cache_mb": 4.19
+    },
+    {
+      "size": "medium",
+      "params": 25339904,
+      "batch": 8,
+      "naive_ms": 1464.4,
+      "cat_ms": 750.3,
+      "prealloc_ms": 752.5,
+      "cat_speedup": 1.95,
+      "prealloc_speedup": 1.95,
+      "kv_cache_mb": 33.55
+    },
+    {
+      "size": "medium",
+      "params": 25339904,
+      "batch": 32,
+      "naive_ms": 5544.8,
+      "cat_ms": 741.6,
+      "prealloc_ms": 765.8,
+      "cat_speedup": 7.48,
+      "prealloc_speedup": 7.24,
+      "kv_cache_mb": 134.22
+    }
+  ],
+  "launch_bound_probe": {
+    "small": {
+      "params": 3222528,
+      "T1_ms": 3.417,
+      "T127_ms": 3.775,
+      "ratio": 1.1
+    },
+    "medium": {
+      "params": 25339904,
+      "T1_ms": 6.226,
+      "T127_ms": 7.632,
+      "ratio": 1.23
+    }
+  },
+  "new_tokens": 127,
+  "method": "median of 5 runs after 2 warmup, greedy, fp32, T4"
+}
