@@ -33,7 +33,7 @@ training. Raw data in [`experiments/`](experiments/).
 - KV cache in two implementations — concatenation-based and preallocated —
   with equality tests against naive recomputation (`src/model.py`, `src/benchmark.py`)
 - Benchmark harness with warmup and median-of-N timing (`src/benchmark.py`, `src/sweep.py`)
-- 45 tests covering causality, off-by-one targets, cache correctness, and
+- 41 tests covering causality, off-by-one targets, cache correctness, and
   sampling edge cases (`tests/`)
 
 ## Why it is built this way
@@ -196,7 +196,7 @@ KV cache memory ceiling caps concurrency.
 pip install -r requirements.txt
 wget -O data/input.txt https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 
-python -m pytest tests/ -q          # 45 tests
+python -m pytest tests/ -q          # 41 tests
 python -m src.train --run-name baseline
 python -m src.generate --compare
 python -m src.benchmark
