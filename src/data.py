@@ -46,3 +46,15 @@ def get_batch(data, batch_size: int, block_size: int, device=None, generator=Non
     if device is not None:
         x, y = x.to(device), y.to(device)
     return x, y
+
+
+def tokenizer_from_stoi(stoi: dict) -> CharTokenizer:
+    """Rebuild a tokenizer from a saved vocabulary.
+
+    Works because CharTokenizer assigns ids in sorted character order, so
+    feeding the vocab back in reproduces the identical mapping.
+    """
+    tok = CharTokenizer("".join(stoi.keys()))
+    if tok.stoi != stoi:
+        raise ValueError("checkpoint vocabulary does not match rebuilt tokenizer")
+    return tok
