@@ -1,8 +1,7 @@
-"""A decoder-only transformer (GPT-style), built from scratch.
+"""A decoder-only transformer (GPT-style), built from scratch, with KV caching.
 
 Architecture per block: LayerNorm -> MultiHeadAttention -> residual,
-then LayerNorm -> FeedForward -> residual. This is the "pre-norm" layout
-used by GPT-2 onwards; the original 2017 paper put the norm after.
+then LayerNorm -> FeedForward -> residual (pre-norm, as in GPT-2).
 """
 
 import math
@@ -27,14 +26,11 @@ class MultiHeadAttention(nn.Module):
         self.n_embd = config.n_embd
         self.head_dim = config.n_embd // config.n_head
 
-        # one matrix produces query, key and value for every head at once
         self.qkv = nn.Linear(config.n_embd, 3 * config.n_embd, bias=False)
         self.proj = nn.Linear(config.n_embd, config.n_embd)
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
-        # lower-triangular matrix of 1s: position t may attend to 0..t only.
-        # registered as a buffer so it moves to GPU with .to(device) but is not a parameter.
         self.register_buffer(
             "mask",
             torch.tril(torch.ones(config.block_size, config.block_size)).view(
@@ -42,24 +38,41 @@ class MultiHeadAttention(nn.Module):
             ),
         )
 
-    def forward(self, x):
+    def forward(self, x, past_kv=None):
+        """past_kv: optional (k, v) from previous steps, each (B, n_head, T_past, head_dim).
+
+        Returns (output, present_kv). When past_kv is given, x holds only the
+        new tokens — their keys and values are appended to the cache instead of
+        the whole prefix being recomputed.
+        """
         B, T, C = x.shape
 
-        q, k, v = self.qkv(x).split(self.n_embd, dim=2)          # 3 x (B, T, C)
-        # split the channel dim across heads: (B, T, C) -> (B, n_head, T, head_dim)
+        q, k, v = self.qkv(x).split(self.n_embd, dim=2)
         q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        # how much each position attends to each other position
-        att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)  # (B, nh, T, T)
-        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = torch.cat([past_k, k], dim=2)
+            v = torch.cat([past_v, v], dim=2)
+        present = (k, v)
+
+        T_full = k.size(2)
+        if T_full > self.mask.size(-1):
+            raise ValueError(f"total length {T_full} exceeds block_size {self.mask.size(-1)}")
+
+        att = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)   # (B, nh, T, T_full)
+        # the T query positions are the LAST T rows of the full causal mask
+        att = att.masked_fill(
+            self.mask[:, :, T_full - T : T_full, :T_full] == 0, float("-inf")
+        )
         att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
 
-        y = att @ v                                                 # (B, nh, T, head_dim)
-        y = y.transpose(1, 2).contiguous().view(B, T, C)            # heads back together
-        return self.resid_dropout(self.proj(y))
+        y = att @ v
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        return self.resid_dropout(self.proj(y)), present
 
 
 class FeedForward(nn.Module):
@@ -89,14 +102,15 @@ class Block(nn.Module):
         self.attn = MultiHeadAttention(config)
         self.ffwd = FeedForward(config)
 
-    def forward(self, x):
+    def forward(self, x, past_kv=None):
+        attn_out, present = self.attn(self.ln1(x), past_kv=past_kv)
         if self.use_residual:
-            x = x + self.attn(self.ln1(x))
+            x = x + attn_out
             x = x + self.ffwd(self.ln2(x))
         else:
-            x = self.attn(self.ln1(x))
+            x = attn_out
             x = self.ffwd(self.ln2(x))
-        return x
+        return x, present
 
 
 class GPT(nn.Module):
@@ -124,27 +138,34 @@ class GPT(nn.Module):
     def num_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, past_kvs=None, use_cache=False):
         B, T = idx.shape
-        if T > self.config.block_size:
+        n_past = past_kvs[0][0].size(2) if past_kvs is not None else 0
+        if n_past + T > self.config.block_size:
             raise ValueError(
-                f"sequence length {T} exceeds block_size {self.config.block_size}"
+                f"sequence length {n_past + T} exceeds block_size {self.config.block_size}"
             )
 
-        x = self.tok_emb(idx)                                   # (B, T, n_embd)
+        x = self.tok_emb(idx)
         if self.pos_emb is not None:
-            pos = torch.arange(T, device=idx.device)
-            x = x + self.pos_emb(pos)                           # broadcast over batch
+            # positions continue from where the cache left off
+            pos = torch.arange(n_past, n_past + T, device=idx.device)
+            x = x + self.pos_emb(pos)
         x = self.drop(x)
 
-        for block in self.blocks:
-            x = block(x)
+        presents = [] if use_cache else None
+        for i, block in enumerate(self.blocks):
+            past = past_kvs[i] if past_kvs is not None else None
+            x, present = block(x, past_kv=past)
+            if use_cache:
+                presents.append(present)
         x = self.ln_f(x)
-        logits = self.head(x)                                   # (B, T, vocab_size)
+        logits = self.head(x)
 
         loss = None
         if targets is not None:
-            loss = F.cross_entropy(
-                logits.view(B * T, -1), targets.reshape(B * T)
-            )
+            loss = F.cross_entropy(logits.view(B * T, -1), targets.reshape(B * T))
+
+        if use_cache:
+            return logits, loss, presents
         return logits, loss

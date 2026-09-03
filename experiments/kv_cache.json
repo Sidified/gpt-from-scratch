@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "tokens": 16,
+      "naive_ms": 56.69,
+      "cached_ms": 68.12,
+      "naive_tok_s": 282.2,
+      "cached_tok_s": 234.9,
+      "speedup": 0.83
+    },
+    {
+      "tokens": 32,
+      "naive_ms": 89.19,
+      "cached_ms": 91.47,
+      "naive_tok_s": 358.8,
+      "cached_tok_s": 349.8,
+      "speedup": 0.98
+    },
+    {
+      "tokens": 64,
+      "naive_ms": 178.16,
+      "cached_ms": 180.71,
+      "naive_tok_s": 359.2,
+      "cached_tok_s": 354.2,
+      "speedup": 0.99
+    },
+    {
+      "tokens": 127,
+      "naive_ms": 357.87,
+      "cached_ms": 489.79,
+      "naive_tok_s": 354.9,
+      "cached_tok_s": 259.3,
+      "speedup": 0.73
+    }
+  ],
+  "kv_cache_bytes_at_full_context": 1048576,
+  "method": "median of 7 runs after 3 warmup runs, greedy decoding"
+}
