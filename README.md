@@ -184,11 +184,6 @@ the launch-bound explanation findable.
 - No run trained to convergence; all comparisons are at a fixed 3,000-iteration budget.
 - Single GPU, single hardware target. Launch-bound conclusions are specific to a T4.
 
-## Next
-
-Serve a 0.5B model under vLLM and compare against these hand-rolled numbers —
-in particular whether the batch-size crossover point moves, and where the
-KV cache memory ceiling caps concurrency.
 
 ## Reproduce
 
